@@ -7,23 +7,39 @@
 <style>
   body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center}
   button{font-size:1.1rem;padding:.8rem 1.4rem;margin:1rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff}
+  select{font-size:1rem;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.3rem}
   #status{color:#888;font-size:.9rem;min-height:1.2em}
-  #big{font-size:3rem;font-weight:700;min-height:4rem;padding:0 1rem;word-spacing:.5rem}
-  #sub{color:#9ab;min-height:1.5rem}
+  #hands{display:flex;gap:8px;margin:.8rem 8px}
+  .hand{flex:1;background:#1b1b1b;border-radius:10px;padding:.6rem .4rem;min-height:9rem}
+  .hand h3{margin:0 0 .4rem;font-size:.85rem;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .lh h3{color:#5aa9ff}.rh h3{color:#4cd964}
+  .notes{font-size:1.3rem;font-weight:600;min-height:1.8rem;word-spacing:.4rem}
+  .chord{font-size:2.2rem;font-weight:700;margin-top:.4rem;min-height:2.8rem}
+  .alt{color:#9ab;font-size:.9rem;min-height:1.2rem}
+  #both{background:#1b1b1b;border-radius:10px;margin:0 8px .6rem;padding:.5rem;display:none}
+  #both .chord{font-size:1.6rem;min-height:0;margin:0}
+  #both h3{margin:0;font-size:.8rem;color:#888;text-transform:uppercase}
+  #split{margin:.4rem;color:#888;font-size:.9rem}
+  #pedal{min-height:1.2rem;color:#9ab;font-size:.9rem}
   #kb{position:relative;height:130px;margin:1rem 4px;overflow:hidden}
   .w,.b{position:absolute;top:0;border:1px solid #000;box-sizing:border-box}
   .w{background:#f5f5f5;height:100%}
   .b{background:#222;height:60%;z-index:2}
-  .on.w{background:#4cd964}
-  .on.b{background:#1b9a36}
-  #pedal{margin:.5rem}
+  .w.l{background:#5aa9ff}.b.l{background:#1f5fa8}
+  .w.r{background:#4cd964}.b.r{background:#1b9a36}
 </style>
 </head>
 <body>
 <button id="connect">Connect to FP-10</button>
 <div id="status">Not connected</div>
-<div id="big">–</div>
-<div id="sub"></div>
+
+<div id="hands">
+  <div class="hand lh"><h3>Left hand</h3><div class="notes" id="lhN">–</div><div class="chord" id="lhC"></div><div class="alt" id="lhA"></div></div>
+  <div class="hand rh"><h3>Right hand</h3><div class="notes" id="rhN">–</div><div class="chord" id="rhC"></div><div class="alt" id="rhA"></div></div>
+</div>
+<div id="both"><h3>Both hands together</h3><div class="chord" id="bothC"></div><div class="alt" id="bothA"></div></div>
+
+<div id="split">Hand split: <select id="splitSel"></select></div>
 <div id="pedal"></div>
 <div id="kb"></div>
 
@@ -35,7 +51,46 @@ const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
 const held = new Set();
 const $ = id => document.getElementById(id);
 
-// Build 88-key keyboard (A0=21 .. C8=108)
+// ---------- Chord detection ----------
+const TEMPLATES = [
+  ['', [0,4,7]], ['m', [0,3,7]], ['dim', [0,3,6]], ['aug', [0,4,8]],
+  ['sus2', [0,2,7]], ['sus4', [0,5,7]],
+  ['7', [0,4,7,10]], ['maj7', [0,4,7,11]], ['m7', [0,3,7,10]], ['m(maj7)', [0,3,7,11]],
+  ['dim7', [0,3,6,9]], ['m7♭5', [0,3,6,10]], ['7sus4', [0,5,7,10]],
+  ['6', [0,4,7,9]], ['m6', [0,3,7,9]],
+  ['add9', [0,2,4,7]], ['m(add9)', [0,2,3,7]],
+  ['9', [0,2,4,7,10]], ['maj9', [0,2,4,7,11]], ['m9', [0,2,3,7,10]]
+];
+const TPL_MAP = new Map(TEMPLATES.map(([name, iv]) => [iv.join(','), name]));
+const INTERVALS = ['unison','minor 2nd','major 2nd','minor 3rd','major 3rd','perfect 4th',
+  'tritone','perfect 5th','minor 6th','major 6th','minor 7th','major 7th'];
+
+function analyze(notes) {
+  if (notes.length === 0) return { main: '', alt: '' };
+  if (notes.length === 1) return { main: noteName(notes[0]), alt: '' };
+  const bass = notes[0] % 12;
+  const pcs = [...new Set(notes.map(n => n % 12))];
+  if (pcs.length === 1) return { main: NAMES[bass] + ' octave', alt: '' };
+  if (pcs.length === 2) {
+    const diff = notes[notes.length - 1] - notes[0];
+    let name = diff === 12 ? 'octave' : INTERVALS[diff % 12] + (diff > 12 ? ' (+ octave)' : '');
+    const alt = (diff % 12 === 7) ? NAMES[bass] + '5 (power chord)' : '';
+    return { main: name, alt };
+  }
+  const found = [];
+  for (const root of pcs) {
+    const key = [...new Set(pcs.map(p => (p - root + 12) % 12))].sort((a, b) => a - b).join(',');
+    const suffix = TPL_MAP.get(key);
+    if (suffix !== undefined) {
+      found.push({ root, text: NAMES[root] + suffix + (root !== bass ? '/' + NAMES[bass] : ''), rank: root === bass ? 0 : 1 });
+    }
+  }
+  found.sort((a, b) => a.rank - b.rank);
+  if (!found.length) return { main: '?', alt: 'no chord match' };
+  return { main: found[0].text, alt: found.slice(1, 3).map(f => f.text).join(' · ') };
+}
+
+// ---------- Keyboard ----------
 const isBlack = n => [1,3,6,8,10].includes(n % 12);
 const whites = []; for (let n = 21; n <= 108; n++) if (!isBlack(n)) whites.push(n);
 const ww = 100 / whites.length;
@@ -52,17 +107,45 @@ for (let n = 22; n < 108; n++) if (isBlack(n)) {
   $('kb').appendChild(d); keyEls[n] = d;
 }
 
-function render() {
-  const notes = [...held].sort((a, b) => a - b);
-  $('big').textContent = notes.length ? notes.map(noteName).join('  ') : '–';
-  $('sub').textContent = notes.length ? 'MIDI: ' + notes.join(', ') : '';
+// ---------- Split setting ----------
+let split = parseInt(localStorage.getItem('split') || '60', 10);
+for (let n = 40; n <= 80; n++) {
+  const o = document.createElement('option');
+  o.value = n; o.textContent = noteName(n) + (n === 60 ? ' (middle C)' : '') + ' and up = right hand';
+  if (n === split) o.selected = true;
+  $('splitSel').appendChild(o);
 }
-function noteOn(n, v)  { held.add(n);    keyEls[n]?.classList.add('on');    render(); }
-function noteOff(n)    { held.delete(n); keyEls[n]?.classList.remove('on'); render(); }
+$('splitSel').onchange = e => { split = parseInt(e.target.value, 10); localStorage.setItem('split', split); render(); };
+
+// ---------- Render ----------
+function show(prefix, notes) {
+  const r = analyze(notes);
+  $(prefix + 'N').textContent = notes.length ? notes.map(noteName).join(' ') : '–';
+  $(prefix + 'C').textContent = r.main;
+  $(prefix + 'A').textContent = r.alt ? 'also: ' + r.alt : '';
+}
+function render() {
+  const all = [...held].sort((a, b) => a - b);
+  const lh = all.filter(n => n < split), rh = all.filter(n => n >= split);
+  show('lh', lh); show('rh', rh);
+  if (lh.length && rh.length) {
+    const r = analyze(all);
+    $('both').style.display = 'block';
+    $('bothC').textContent = r.main;
+    $('bothA').textContent = r.alt ? 'also: ' + r.alt : '';
+  } else $('both').style.display = 'none';
+  for (const [n, el] of Object.entries(keyEls)) {
+    const on = held.has(+n);
+    el.classList.toggle('l', on && +n < split);
+    el.classList.toggle('r', on && +n >= split);
+  }
+}
+const noteOn  = n => { held.add(n); render(); };
+const noteOff = n => { held.delete(n); render(); };
 
 function handleMsg(status, d1, d2) {
   const type = status & 0xF0;
-  if (type === 0x90 && d2 > 0) noteOn(d1, d2);
+  if (type === 0x90 && d2 > 0) noteOn(d1);
   else if (type === 0x80 || (type === 0x90 && d2 === 0)) noteOff(d1);
   else if (type === 0xB0 && d1 === 64) $('pedal').textContent = d2 >= 64 ? 'Sustain pedal: down' : '';
 }
@@ -72,7 +155,7 @@ function parse(d) {
   let i = 1, status = 0;
   while (i < d.length) {
     let b = d[i];
-    if (b & 0x80) {                // timestamp byte
+    if (b & 0x80) {
       i++; if (i >= d.length) break;
       b = d[i];
       if (b & 0x80) { status = b; i++; }
@@ -97,8 +180,7 @@ $('connect').onclick = async () => {
       filters: [{ services: [MIDI_SERVICE] }]
     });
     dev.addEventListener('gattserverdisconnected', () => {
-      $('status').textContent = 'Disconnected'; held.clear();
-      Object.values(keyEls).forEach(e => e.classList.remove('on')); render();
+      $('status').textContent = 'Disconnected'; held.clear(); render();
     });
     const server = await dev.gatt.connect();
     const svc = await server.getPrimaryService(MIDI_SERVICE);
@@ -112,6 +194,8 @@ $('connect').onclick = async () => {
     $('status').textContent = 'Error: ' + err.message;
   }
 };
+
+render();
 </script>
 </body>
 </html>
