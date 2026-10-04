@@ -8,13 +8,14 @@
   body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center;-webkit-user-select:none;user-select:none}
   button,.btn{font-size:1rem;padding:.5rem .9rem;margin:.2rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff;cursor:pointer;display:inline-block}
   button.sec,.btn.sec{background:#333}
-  button.big{font-size:1.5rem;padding:.4rem 1.6rem}
+  button.big{font-size:1.5rem;padding:.4rem 1.4rem}
+  button.listen{font-size:1.1rem;padding:.6rem 1rem;background:#7a4bd6}
   select{font-size:.9rem;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.25rem}
   #top{padding:.3rem}
   #status{color:#888;font-size:.85rem}
   #songbar{font-size:.95rem;color:#bcd}
-  #opts{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin:.3rem 8px;font-size:.9rem}
-  #speedBox{flex:1;min-width:200px;max-width:340px}
+  #opts{display:flex;align-items:center;justify-content:center;gap:10px 14px;flex-wrap:wrap;margin:.3rem 8px;font-size:.9rem}
+  #speedBox{flex:1 1 100%;min-width:200px;max-width:340px}
   .rangeWrap{position:relative;padding:0 10px 18px}
   .rangeWrap input{width:100%;margin:0}
   #ticks{position:absolute;left:10px;right:10px;bottom:0;height:16px;font-size:.7rem;color:#888}
@@ -24,6 +25,7 @@
   #hud{font-size:.95rem;color:#cde;margin-top:.3rem}
   #judge{height:1.4rem;font-weight:700}
   #msg{min-height:1.2rem;color:#9ab;font-size:.9rem;padding:0 8px}
+  #outRow{font-size:.85rem;color:#888;margin:.2rem}
   #hands{display:flex;gap:6px;margin:.4rem 6px}
   .hand{flex:1;background:#1b1b1b;border-radius:8px;padding:.3rem}
   .hand h3{margin:0;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
@@ -49,6 +51,8 @@
 
 <div id='opts'>
   <label><input type='checkbox' id='waitChk'> Wait for me</label>
+  <label>Practice <select id='handSel'><option value='both'>Both hands</option><option value='L'>Left hand only</option><option value='R'>Right hand only</option></select></label>
+  <label><input type='checkbox' id='hideChk'> Hide other hand</label>
   <div id='speedBox'>
     <div>Speed <b id='speedVal'>100</b>%</div>
     <div class='rangeWrap'><input type='range' id='speed' min='50' max='100' step='1' value='100'><div id='ticks'></div></div>
@@ -61,7 +65,9 @@
 <div>
   <button class='sec big' id='rew'>&#9198;</button>
   <button class='big' id='play'>&#9654;</button>
+  <button class='listen' id='listen'>Listen</button>
 </div>
+<div id='outRow'>Listen on: <select id='outSel'><option value='auto'>Piano (if connected)</option><option value='phone'>Phone speaker</option></select></div>
 <div id='msg'></div>
 
 <div id='hands'>
@@ -79,6 +85,7 @@ const NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
 const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
 const $ = id => document.getElementById(id);
 const held = new Set();
+const sounding = new Set();
 
 // ---------- Chord detection ----------
 const TEMPLATES = [
@@ -128,7 +135,10 @@ for (let n = 40; n <= 80; n++) {
   $('splitSel').appendChild(o);
 }
 $('splitSel').onchange = e => { split = parseInt(e.target.value, 10); localStorage.setItem('split', split); renderChords(); };
-const handColor = p => p < split ? '#5aa9ff' : '#4cd964';
+const BLUE = '#5aa9ff', GREEN = '#4cd964';
+const keyColor = p => p < split ? BLUE : GREEN;
+const handOf = n => n.h || (n.p < split ? 'L' : 'R');
+const noteColor = n => handOf(n) === 'L' ? BLUE : GREEN;
 
 function showHand(prefix, notes) {
   const r = analyze(notes);
@@ -161,13 +171,13 @@ function noteNum(s) {
   if (s[i] === '#') { acc = 1; i++; } else if (s[i] === 'b') { acc = -1; i++; }
   return (parseInt(s.slice(i), 10) + 1) * 12 + base + acc;
 }
-function buildSeq(str, bpm) {
+function buildSeq(str, bpm, hand) {
   const spb = 60 / bpm, out = [];
   let t = 0;
   for (const tok of str.trim().split(' ')) {
     const [names, b] = tok.split(':');
     const beats = parseFloat(b);
-    if (names !== 'R') for (const nm of names.split('+')) out.push({ t: t * spb, d: beats * spb * 0.95, p: noteNum(nm), state: 0 });
+    if (names !== 'R') for (const nm of names.split('+')) out.push({ t: t * spb, d: beats * spb * 0.95, p: noteNum(nm), h: hand, state: 0 });
     t += beats;
   }
   return out;
@@ -180,7 +190,7 @@ function odeToJoy() {
   const mel = [A, E1, A, E2, B, A, E2].join(' ');
   const C = 'C3+G3:4', G = 'G2+D3:4', Ch = 'C3+G3:2', Gh = 'G2+D3:2';
   const lh = [C, G, C, G, C, G, C, Gh, Ch, Gh, Ch, Gh, Ch, G, Ch, Gh, C, G, C, Gh, Ch].join(' ');
-  return buildSeq(mel, 100).concat(buildSeq(lh, 100));
+  return buildSeq(mel, 100, 'R').concat(buildSeq(lh, 100, 'L'));
 }
 
 // ---------- MIDI file parser ----------
@@ -249,13 +259,71 @@ function parseMidi(buf) {
   return notes;
 }
 
+// ---------- Sound output (piano over BLE, or phone synth) ----------
+let midiChar = null, bleConnected = false, bleMsgs = [], bleChain = Promise.resolve();
+let ac = null;
+const voices = new Map();
+const useBle = () => midiChar && bleConnected && $('outSel').value === 'auto';
+
+function flushBle() {
+  if (!bleMsgs.length) return;
+  if (!midiChar) { bleMsgs = []; return; }
+  while (bleMsgs.length) {
+    const chunk = bleMsgs.splice(0, 4);
+    const pkt = [0x80];
+    for (const m of chunk) pkt.push(0x80, m[0], m[1], m[2]);
+    const data = new Uint8Array(pkt);
+    const ch = midiChar;
+    bleChain = bleChain.then(() => ch.writeValueWithoutResponse(data)).catch(() => {});
+  }
+}
+function synthOn(p) {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+  if (voices.has(p)) synthOff(p);
+  const t = ac.currentTime, f = 440 * Math.pow(2, (p - 69) / 12);
+  const g = ac.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.25, t + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.08, t + 0.5);
+  const o1 = ac.createOscillator(); o1.type = 'triangle'; o1.frequency.value = f;
+  const o2 = ac.createOscillator(); o2.type = 'sine'; o2.frequency.value = f * 2;
+  const g2 = ac.createGain(); g2.gain.value = 0.3;
+  o1.connect(g); o2.connect(g2); g2.connect(g); g.connect(ac.destination);
+  o1.start(t); o2.start(t);
+  voices.set(p, { g, o1, o2 });
+}
+function synthOff(p) {
+  const v = voices.get(p);
+  if (!v) return;
+  const t = ac.currentTime;
+  v.g.gain.cancelScheduledValues(t);
+  v.g.gain.setValueAtTime(Math.max(0.0002, v.g.gain.value), t);
+  v.g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+  v.o1.stop(t + 0.3); v.o2.stop(t + 0.3);
+  voices.delete(p);
+}
+function outOn(p) { if (useBle()) bleMsgs.push([0x90, p, 80]); else synthOn(p); sounding.add(p); }
+function outOff(p) { if (useBle()) bleMsgs.push([0x80, p, 0]); else synthOff(p); sounding.delete(p); }
+function stopSound() {
+  listening = false;
+  for (const p of [...sounding]) outOff(p);
+  for (const p of [...voices.keys()]) synthOff(p);
+  if (useBle()) bleMsgs.push([0xB0, 123, 0]);
+  flushBle();
+  $('listen').textContent = 'Listen';
+}
+
 // ---------- Game state ----------
-let pos = -LEAD, playing = false, finished = false, scan = 0;
+let pos = -LEAD, playing = false, listening = false, finished = false, scan = 0;
 let mode = localStorage.getItem('mode') || 'free';
+let practice = localStorage.getItem('practice') || 'both';
+let hideOther = localStorage.getItem('hideOther') === '1';
 let speed = parseInt(localStorage.getItem('speed') || '100', 10);
 let lastInput = 0, judgeText = '', judgeColor = '#fff', judgeAt = 0;
 const stats = { perfect: 0, good: 0, miss: 0, wrong: 0, combo: 0, maxCombo: 0, points: 0 };
 const rate = () => speed / 100;
+const isActive = n => practice === 'both' || handOf(n) === practice;
 
 function loadSong(name, notes) {
   notes.sort((a, b) => a.t - b.t);
@@ -275,8 +343,9 @@ function resetStats() {
 }
 function setPlayIcon() { $('play').innerHTML = playing ? '&#9208;' : '&#9654;'; }
 function rewind() {
+  stopSound();
   playing = false; finished = false; pos = -LEAD; scan = 0;
-  song.notes.forEach(n => { n.state = 0; });
+  song.notes.forEach(n => { n.state = 0; n.on = false; n.off = false; });
   resetStats(); unlock(); setPlayIcon();
   $('msg').textContent = 'Press play, then play along.';
   judgeText = '';
@@ -286,10 +355,24 @@ function pauseNow(reason) {
   $('msg').textContent = reason || 'Paused';
 }
 function togglePlay() {
+  if (listening) rewind();
   if (finished) rewind();
   if (playing) { pauseNow('Paused'); return; }
   playing = true; lastInput = performance.now();
   $('msg').textContent = ''; setPlayIcon(); lock();
+}
+function toggleListen() {
+  if (listening) { rewind(); return; }
+  rewind();
+  listening = true;
+  const viaPiano = useBle();
+  if (!viaPiano) {
+    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (ac.state === 'suspended') ac.resume();
+  }
+  $('listen').textContent = 'Stop';
+  $('msg').textContent = 'Listening via ' + (viaPiano ? 'the piano (Bluetooth).' : 'the phone speaker.');
+  lock();
 }
 let wl = null;
 async function lock() { try { wl = await navigator.wakeLock.request('screen'); } catch (e) { wl = null; } }
@@ -307,23 +390,28 @@ function judge(p) {
   const winG = free ? 0.25 * rate() : 0.35;
   const winP = 0.12 * rate();
   const ns = song.notes;
-  let best = null, bd = 1e9;
+  let best = null, bd = 1e9, ghost = false;
   for (let i = scan; i < ns.length && ns[i].t - pos <= winG; i++) {
     const n = ns[i];
-    if (n.state !== 0 || n.p !== p) continue;
+    if (n.p !== p) continue;
     const d = Math.abs(n.t - pos);
+    if (!isActive(n)) { if (d <= winG) ghost = true; continue; }
+    if (n.state !== 0) continue;
     if (free && d > winG) continue;
     if (d < bd) { bd = d; best = n; }
   }
-  if (!best) { stats.wrong++; stats.combo = 0; flash('Wrong note', '#ff6b6b'); return; }
+  if (!best) {
+    if (ghost) return;
+    stats.wrong++; stats.combo = 0; flash('Wrong note', '#ff6b6b'); return;
+  }
   if (!free || bd <= winP) { best.state = 1; stats.perfect++; stats.points += 100; flash('Perfect', '#ffd54a'); }
   else { best.state = 2; stats.good++; stats.points += 60; flash('Good', '#7ee787'); }
   addCombo();
 }
 
-function bestKey() { return 'best|' + song.name + '|' + mode + '|' + speed; }
+function bestKey() { return 'best|' + song.name + '|' + mode + '|' + practice + '|' + speed; }
 function finish() {
-  for (const n of song.notes) if (n.state === 0) { n.state = 3; stats.miss++; }
+  for (const n of song.notes) if (n.state === 0 && isActive(n)) { n.state = 3; stats.miss++; }
   playing = false; finished = true; unlock(); setPlayIcon();
   const acc = calcAcc() || 0;
   const prev = parseFloat(localStorage.getItem(bestKey()) || '0');
@@ -335,17 +423,27 @@ function finish() {
 function step(dt, now) {
   const ns = song.notes, free = mode === 'free';
   let target = pos + dt * rate();
-  while (scan < ns.length && ns[scan].state !== 0) scan++;
+  while (scan < ns.length && (ns[scan].state !== 0 || !isActive(ns[scan]))) scan++;
   if (!free && scan < ns.length && ns[scan].t < target) target = Math.max(pos, ns[scan].t);
   pos = target;
   if (free) {
     const winG = 0.25 * rate();
     for (let i = scan; i < ns.length && ns[i].t < pos - winG; i++) {
-      if (ns[i].state === 0) { ns[i].state = 3; stats.miss++; stats.combo = 0; flash('Miss', '#ff6b6b'); }
+      if (ns[i].state === 0 && isActive(ns[i])) { ns[i].state = 3; stats.miss++; stats.combo = 0; flash('Miss', '#ff6b6b'); }
     }
   }
   if (now - lastInput > IDLE_MS) { pauseNow('Auto-paused: no input for 5 seconds.'); return; }
   if (pos >= song.end + 0.5) finish();
+}
+
+function stepListen(dt) {
+  pos += dt * rate();
+  for (const n of song.notes) {
+    if (n.t > pos) break;
+    if (!n.on) { n.on = true; outOn(n.p); }
+    if (!n.off && n.t + n.d <= pos) { n.off = true; outOff(n.p); }
+  }
+  if (pos >= song.end + 0.5) { rewind(); $('msg').textContent = 'Playback finished.'; }
 }
 
 // ---------- Drawing ----------
@@ -375,13 +473,16 @@ function draw() {
     if (bottom < 0) break;
     const top = bottom - n.d * pxs;
     if (top > hitY) continue;
+    const active = isActive(n);
+    if (!active && hideOther) continue;
     const blk = isBlack(n.p);
     const x = blk ? (whiteIdx[n.p - 1] + 1) * ww - bw / 2 : whiteIdx[n.p] * ww + 1;
     const w = blk ? bw : ww - 2;
     const h = Math.max(4, bottom - top - 2);
     ctx.globalAlpha = 1;
-    let fill = handColor(n.p);
-    if (n.state === 1) { fill = '#ffd54a'; ctx.globalAlpha = 0.5; }
+    let fill = noteColor(n);
+    if (!active) ctx.globalAlpha = 0.22;
+    else if (n.state === 1) { fill = '#ffd54a'; ctx.globalAlpha = 0.5; }
     else if (n.state === 2) ctx.globalAlpha = 0.4;
     else if (n.state === 3) { fill = '#ff5252'; ctx.globalAlpha = 0.3; }
     rrect(x, top, w, h, 3, fill);
@@ -389,17 +490,18 @@ function draw() {
   ctx.globalAlpha = 1;
   ctx.strokeStyle = 'rgba(255,255,255,0.5)';
   ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(W, hitY); ctx.stroke();
+  const lit = p => held.has(p) || sounding.has(p);
   whites.forEach((p, i) => {
-    ctx.fillStyle = held.has(p) ? handColor(p) : '#f5f5f5';
+    ctx.fillStyle = lit(p) ? keyColor(p) : '#f5f5f5';
     ctx.fillRect(i * ww, hitY, ww, kbH);
     ctx.strokeStyle = '#000'; ctx.strokeRect(i * ww, hitY, ww, kbH);
   });
   for (let p = song.lo; p <= song.hi; p++) {
     if (!isBlack(p) || whiteIdx[p - 1] === undefined) continue;
     const x = (whiteIdx[p - 1] + 1) * ww - bw / 2;
-    ctx.fillStyle = held.has(p) ? handColor(p) : '#222';
+    ctx.fillStyle = lit(p) ? keyColor(p) : '#222';
     ctx.fillRect(x, hitY, bw, bh);
-    if (held.has(p)) { ctx.strokeStyle = '#000'; ctx.strokeRect(x, hitY, bw, bh); }
+    if (lit(p)) { ctx.strokeStyle = '#000'; ctx.strokeRect(x, hitY, bw, bh); }
   }
 }
 
@@ -420,7 +522,8 @@ function frame(now) {
   const dt = Math.min(0.1, (now - lastFrame) / 1000);
   lastFrame = now;
   if (playing) step(dt, performance.now());
-  draw(); hud();
+  else if (listening) stepListen(dt);
+  draw(); hud(); flushBle();
   requestAnimationFrame(frame);
 }
 
@@ -466,12 +569,15 @@ $('connect').onclick = async () => {
     const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [MIDI_SERVICE] }] });
     dev.addEventListener('gattserverdisconnected', () => {
       $('status').textContent = ' Disconnected'; held.clear(); renderChords();
+      bleConnected = false; midiChar = null;
+      if (listening) rewind();
     });
     const server = await dev.gatt.connect();
     const svc = await server.getPrimaryService(MIDI_SERVICE);
     const ch = await svc.getCharacteristic(MIDI_CHAR);
     ch.addEventListener('characteristicvaluechanged', e => { parse(new Uint8Array(e.target.value.buffer)); });
     await ch.startNotifications();
+    midiChar = ch; bleConnected = true;
     $('status').textContent = ' Connected: ' + (dev.name || 'device');
   } catch (err) {
     $('status').textContent = ' Error: ' + err.message;
@@ -481,6 +587,9 @@ $('connect').onclick = async () => {
 // ---------- UI wiring ----------
 $('play').onclick = togglePlay;
 $('rew').onclick = rewind;
+$('listen').onclick = toggleListen;
+$('outSel').value = localStorage.getItem('outSel') || 'auto';
+$('outSel').onchange = e => { localStorage.setItem('outSel', e.target.value); if (listening) rewind(); };
 $('odeBtn').onclick = () => loadSong('Ode to Joy', odeToJoy());
 $('file').onchange = async e => {
   const f = e.target.files[0];
@@ -496,6 +605,16 @@ $('waitChk').checked = mode === 'wait';
 $('waitChk').onchange = e => {
   mode = e.target.checked ? 'wait' : 'free';
   localStorage.setItem('mode', mode); rewind();
+};
+$('handSel').value = practice;
+$('handSel').onchange = e => {
+  practice = e.target.value;
+  localStorage.setItem('practice', practice); rewind();
+};
+$('hideChk').checked = hideOther;
+$('hideChk').onchange = e => {
+  hideOther = e.target.checked;
+  localStorage.setItem('hideOther', hideOther ? '1' : '0');
 };
 
 const NOTCHES = [50, 60, 70, 80, 90, 100];
