@@ -14,7 +14,7 @@
   #top{padding:.3rem}
   #status{color:#888;font-size:.85rem}
   #songbar{font-size:.95rem;color:#bcd}
-  #opts{display:flex;align-items:center;justify-content:center;gap:10px 14px;flex-wrap:wrap;margin:.3rem 8px;font-size:.9rem}
+  #opts,#opts2{display:flex;align-items:center;justify-content:center;gap:10px 14px;flex-wrap:wrap;margin:.3rem 8px;font-size:.9rem}
   #speedBox{flex:1 1 100%;min-width:200px;max-width:340px}
   .rangeWrap{position:relative;padding:0 10px 18px}
   .rangeWrap input{width:100%;margin:0}
@@ -24,6 +24,7 @@
   #cv{width:100%;height:50vh;min-height:280px;max-height:480px;display:block;border-radius:8px;background:#0b0b0b;touch-action:manipulation}
   #hud{font-size:.95rem;color:#cde;margin-top:.3rem}
   #judge{height:1.4rem;font-weight:700}
+  #judge2{height:1.1rem;font-size:.85rem;font-weight:600}
   #msg{min-height:1.2rem;color:#9ab;font-size:.9rem;padding:0 8px}
   #outRow{font-size:.85rem;color:#888;margin:.2rem}
   #hands{display:flex;gap:6px;margin:.4rem 6px}
@@ -58,9 +59,16 @@
     <div class='rangeWrap'><input type='range' id='speed' min='50' max='100' step='1' value='100'><div id='ticks'></div></div>
   </div>
 </div>
+<div id='opts2'>
+  <label><input type='checkbox' id='holdChk'> Score hold length</label>
+  <label><input type='checkbox' id='namesChk'> Note names</label>
+  <label><input type='checkbox' id='fingChk'> Fingering</label>
+  <label><input type='checkbox' id='metChk'> Metronome</label>
+</div>
 
 <div id='stage'><canvas id='cv'></canvas></div>
 <div id='judge'></div>
+<div id='judge2'></div>
 <div id='hud'></div>
 <div>
   <button class='sec big' id='rew'>&#9198;</button>
@@ -86,6 +94,7 @@ const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
 const $ = id => document.getElementById(id);
 const held = new Set();
 const sounding = new Set();
+const holding = new Map();
 
 // ---------- Chord detection ----------
 const TEMPLATES = [
@@ -162,7 +171,7 @@ function renderChords() {
 const LEAD = 2;
 const VIS = 3;
 const IDLE_MS = 5000;
-let song = { name: '', notes: [], lo: 36, hi: 71, end: 0 };
+let song = { name: '', notes: [], beats: [], lo: 36, hi: 71, end: 0 };
 let whites = [], whiteIdx = {};
 
 function noteNum(s) {
@@ -177,20 +186,26 @@ function buildSeq(str, bpm, hand) {
   for (const tok of str.trim().split(' ')) {
     const [names, b] = tok.split(':');
     const beats = parseFloat(b);
-    if (names !== 'R') for (const nm of names.split('+')) out.push({ t: t * spb, d: beats * spb * 0.95, p: noteNum(nm), h: hand, state: 0 });
+    if (names !== 'R') for (const nm of names.split('+')) {
+      const [nn, f] = nm.split('.');
+      out.push({ t: t * spb, d: beats * spb * 0.95, p: noteNum(nn), f: f ? parseInt(f, 10) : 0, h: hand, state: 0 });
+    }
     t += beats;
   }
   return out;
 }
 function odeToJoy() {
-  const A = 'E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1';
-  const E1 = 'E4:1.5 D4:.5 D4:2';
-  const E2 = 'D4:1.5 C4:.5 C4:2';
-  const B = 'D4:1 D4:1 E4:1 C4:1 D4:1 E4:.5 F4:.5 E4:1 C4:1 D4:1 E4:.5 F4:.5 E4:1 D4:1 C4:1 D4:1 G3:2';
+  const A = 'E4.3:1 E4.3:1 F4.4:1 G4.5:1 G4.5:1 F4.4:1 E4.3:1 D4.2:1 C4.1:1 C4.1:1 D4.2:1 E4.3:1';
+  const E1 = 'E4.3:1.5 D4.2:.5 D4.2:2';
+  const E2 = 'D4.2:1.5 C4.1:.5 C4.1:2';
+  const B = 'D4.2:1 D4.2:1 E4.3:1 C4.1:1 D4.2:1 E4.3:.5 F4.4:.5 E4.3:1 C4.1:1 D4.2:1 E4.3:.5 F4.4:.5 E4.3:1 D4.2:1 C4.1:1 D4.2:1 G3.1:2';
   const mel = [A, E1, A, E2, B, A, E2].join(' ');
-  const C = 'C3+G3:4', G = 'G2+D3:4', Ch = 'C3+G3:2', Gh = 'G2+D3:2';
+  const C = 'C3.5+G3.1:4', G = 'G2.5+D3.1:4', Ch = 'C3.5+G3.1:2', Gh = 'G2.5+D3.1:2';
   const lh = [C, G, C, G, C, G, C, Gh, Ch, Gh, Ch, Gh, Ch, G, Ch, Gh, C, G, C, Gh, Ch].join(' ');
-  return buildSeq(mel, 100, 'R').concat(buildSeq(lh, 100, 'L'));
+  const notes = buildSeq(mel, 100, 'R').concat(buildSeq(lh, 100, 'L'));
+  const spb = 0.6, end = 64 * spb, beats = [];
+  for (let k = -3; k * spb <= end; k++) beats.push({ t: k * spb, strong: ((k % 4) + 4) % 4 === 0 });
+  return { notes, beats };
 }
 
 // ---------- MIDI file parser ----------
@@ -205,6 +220,7 @@ function parseMidi(buf) {
   o += hl;
   if (div & 0x8000) throw new Error('SMPTE timing not supported');
   const tempos = [], raw = [];
+  let sigNum = 4, sigDen = 4, sigSet = false;
   for (let t = 0; t < ntr && o + 8 <= v.byteLength; t++) {
     const id = str(4), len = v.getUint32(o); o += 4;
     const end = o + len;
@@ -218,6 +234,7 @@ function parseMidi(buf) {
       if (s === 0xFF) {
         const type = v.getUint8(o++), l = vlq();
         if (type === 0x51 && l === 3) tempos.push({ tick, us: (v.getUint8(o) << 16) | (v.getUint8(o + 1) << 8) | v.getUint8(o + 2) });
+        else if (type === 0x58 && l >= 2 && !sigSet) { sigNum = v.getUint8(o); sigDen = Math.pow(2, v.getUint8(o + 1)); sigSet = true; }
         o += l;
       } else if (s === 0xF0 || s === 0xF7) {
         o += vlq();
@@ -251,12 +268,27 @@ function parseMidi(buf) {
   };
   const notes = raw.filter(r => r.p >= 21 && r.p <= 108).map(r => {
     const t = toSec(r.s);
-    return { t, d: Math.max(0.05, toSec(r.e) - t), p: r.p, state: 0 };
+    return { t, d: Math.max(0.05, toSec(r.e) - t), p: r.p, f: 0, state: 0 };
   });
   if (!notes.length) throw new Error('No notes found in file');
   const t0 = Math.min(...notes.map(n => n.t));
   notes.forEach(n => { n.t -= t0; });
-  return notes;
+
+  let beatTicks = div * 4 / sigDen;
+  if (!(beatTicks > 0)) beatTicks = div;
+  const maxT = raw.reduce((m, r) => Math.max(m, r.e), 0);
+  let beats = [];
+  for (let i = 0; i * beatTicks <= maxT + beatTicks && i < 20000; i++) {
+    beats.push({ t: toSec(i * beatTicks) - t0, strong: i % sigNum === 0 });
+  }
+  if (beats.length > 1) {
+    const spb0 = beats[1].t - beats[0].t, first = beats[0];
+    for (let k = 1; first.t - k * spb0 >= -LEAD - 0.001; k++) {
+      beats.unshift({ t: first.t - k * spb0, strong: (((-k) % sigNum) + sigNum) % sigNum === 0 });
+    }
+  }
+  beats = beats.filter(b => b.t >= -LEAD - 0.001);
+  return { notes, beats };
 }
 
 // ---------- Sound output (piano over BLE, or phone synth) ----------
@@ -264,6 +296,10 @@ let midiChar = null, bleConnected = false, bleMsgs = [], bleChain = Promise.reso
 let ac = null;
 const voices = new Map();
 const useBle = () => midiChar && bleConnected && $('outSel').value === 'auto';
+function ensureAudio() {
+  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+  if (ac.state === 'suspended') ac.resume();
+}
 
 function flushBle() {
   if (!bleMsgs.length) return;
@@ -278,8 +314,7 @@ function flushBle() {
   }
 }
 function synthOn(p) {
-  if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
-  if (ac.state === 'suspended') ac.resume();
+  ensureAudio();
   if (voices.has(p)) synthOff(p);
   const t = ac.currentTime, f = 440 * Math.pow(2, (p - 69) / 12);
   const g = ac.createGain();
@@ -313,19 +348,45 @@ function stopSound() {
   flushBle();
   $('listen').textContent = 'Listen';
 }
+function click(strong) {
+  if (!ac) return;
+  if (ac.state === 'suspended') ac.resume();
+  const t = ac.currentTime;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.frequency.value = strong ? 1200 : 800;
+  g.gain.setValueAtTime(0.3, t);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+  o.connect(g); g.connect(ac.destination);
+  o.start(t); o.stop(t + 0.06);
+}
 
 // ---------- Game state ----------
-let pos = -LEAD, playing = false, listening = false, finished = false, scan = 0;
+let pos = -LEAD, playing = false, listening = false, finished = false, scan = 0, beatIdx = 0;
 let mode = localStorage.getItem('mode') || 'free';
 let practice = localStorage.getItem('practice') || 'both';
 let hideOther = localStorage.getItem('hideOther') === '1';
+let holdOn = localStorage.getItem('hold') !== '0';
+let showNames = localStorage.getItem('names') !== '0';
+let showFing = localStorage.getItem('fing') !== '0';
+let metOn = localStorage.getItem('met') === '1';
 let speed = parseInt(localStorage.getItem('speed') || '100', 10);
-let lastInput = 0, judgeText = '', judgeColor = '#fff', judgeAt = 0;
-const stats = { perfect: 0, good: 0, miss: 0, wrong: 0, combo: 0, maxCombo: 0, points: 0 };
+let lastInput = 0, judgeText = '', judgeColor = '#fff', judgeAt = 0, judge2Text = '', judge2Color = '#fff', judge2At = 0;
+let beatFlash = 0, beatStrong = false;
+const stats = { perfect: 0, good: 0, miss: 0, wrong: 0, combo: 0, maxCombo: 0, points: 0, holdPts: 0, holdN: 0 };
 const rate = () => speed / 100;
 const isActive = n => practice === 'both' || handOf(n) === practice;
 
-function loadSong(name, notes) {
+function updateTitle() {
+  let t = '';
+  const b = song.beats;
+  if (b.length > 2) {
+    const i = Math.max(0, b.findIndex(x => x.t >= 0));
+    if (b[i + 1]) t = ' | ~' + Math.round(60 / (b[i + 1].t - b[i].t) * rate()) + ' BPM';
+  }
+  $('songName').textContent = song.name + ' (' + song.notes.length + ' notes)' + t;
+}
+function loadSong(name, data) {
+  const notes = data.notes;
   notes.sort((a, b) => a.t - b.t);
   let lo = Math.floor(Math.min(...notes.map(n => n.p)) / 12) * 12;
   let hi = Math.ceil((Math.max(...notes.map(n => n.p)) + 1) / 12) * 12 - 1;
@@ -334,30 +395,32 @@ function loadSong(name, notes) {
   const isBlack = n => [1,3,6,8,10].includes(n % 12);
   whites = []; whiteIdx = {};
   for (let n = lo; n <= hi; n++) if (!isBlack(n)) { whiteIdx[n] = whites.length; whites.push(n); }
-  song = { name, notes, lo, hi, end: Math.max(...notes.map(n => n.t + n.d)) };
-  $('songName').textContent = name + ' (' + notes.length + ' notes)';
+  song = { name, notes, beats: data.beats || [], lo, hi, end: Math.max(...notes.map(n => n.t + n.d)) };
+  updateTitle();
   rewind();
 }
 function resetStats() {
-  stats.perfect = stats.good = stats.miss = stats.wrong = stats.combo = stats.maxCombo = stats.points = 0;
+  stats.perfect = stats.good = stats.miss = stats.wrong = stats.combo = stats.maxCombo = stats.points = stats.holdPts = stats.holdN = 0;
 }
 function setPlayIcon() { $('play').innerHTML = playing ? '&#9208;' : '&#9654;'; }
 function rewind() {
   stopSound();
-  playing = false; finished = false; pos = -LEAD; scan = 0;
+  playing = false; finished = false; pos = -LEAD; scan = 0; beatIdx = 0;
+  holding.clear();
   song.notes.forEach(n => { n.state = 0; n.on = false; n.off = false; });
   resetStats(); unlock(); setPlayIcon();
   $('msg').textContent = 'Press play, then play along.';
-  judgeText = '';
+  judgeText = ''; judge2Text = '';
 }
 function pauseNow(reason) {
-  playing = false; unlock(); setPlayIcon();
+  playing = false; holding.clear(); unlock(); setPlayIcon();
   $('msg').textContent = reason || 'Paused';
 }
 function togglePlay() {
   if (listening) rewind();
   if (finished) rewind();
   if (playing) { pauseNow('Paused'); return; }
+  if (metOn) ensureAudio();
   playing = true; lastInput = performance.now();
   $('msg').textContent = ''; setPlayIcon(); lock();
 }
@@ -366,10 +429,7 @@ function toggleListen() {
   rewind();
   listening = true;
   const viaPiano = useBle();
-  if (!viaPiano) {
-    if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
-    if (ac.state === 'suspended') ac.resume();
-  }
+  if (!viaPiano) ensureAudio();
   $('listen').textContent = 'Stop';
   $('msg').textContent = 'Listening via ' + (viaPiano ? 'the piano (Bluetooth).' : 'the phone speaker.');
   lock();
@@ -379,9 +439,13 @@ async function lock() { try { wl = await navigator.wakeLock.request('screen'); }
 function unlock() { try { if (wl) wl.release(); } catch (e) {} wl = null; }
 
 function flash(text, color) { judgeText = text; judgeColor = color; judgeAt = performance.now(); }
+function flash2(text, color) { judge2Text = text; judge2Color = color; judge2At = performance.now(); }
 function calcAcc() {
   const judged = stats.perfect + stats.good + stats.miss + stats.wrong;
-  return judged ? stats.points / (100 * judged) * 100 : null;
+  if (!judged) return null;
+  let num = stats.points, den = 100 * judged;
+  if (holdOn) { num += stats.holdPts; den += 50 * stats.holdN; }
+  return num / den * 100;
 }
 function addCombo() { stats.combo++; if (stats.combo > stats.maxCombo) stats.maxCombo = stats.combo; }
 
@@ -407,10 +471,25 @@ function judge(p) {
   if (!free || bd <= winP) { best.state = 1; stats.perfect++; stats.points += 100; flash('Perfect', '#ffd54a'); }
   else { best.state = 2; stats.good++; stats.points += 60; flash('Good', '#7ee787'); }
   addCombo();
+  if (holdOn) { best.hitPos = pos; holding.set(p, best); }
+}
+function evalHold(p, relPos) {
+  const n = holding.get(p);
+  holding.delete(p);
+  if (!n) return;
+  let ratio = (relPos - n.hitPos) / n.d;
+  if (n.d < 0.25) ratio = 1;
+  let pts, txt, col;
+  if (ratio >= 0.75) { pts = 50; txt = 'Held'; col = '#7ee787'; }
+  else if (ratio >= 0.4) { pts = 25; txt = 'Short'; col = '#ffd54a'; }
+  else { pts = 0; txt = 'Too short'; col = '#ff6b6b'; }
+  stats.holdPts += pts; stats.holdN++;
+  flash2(txt, col);
 }
 
-function bestKey() { return 'best|' + song.name + '|' + mode + '|' + practice + '|' + speed; }
+function bestKey() { return 'best|' + song.name + '|' + mode + '|' + practice + '|' + speed + '|h' + (holdOn ? 1 : 0); }
 function finish() {
+  for (const p of [...holding.keys()]) evalHold(p, pos);
   for (const n of song.notes) if (n.state === 0 && isActive(n)) { n.state = 3; stats.miss++; }
   playing = false; finished = true; unlock(); setPlayIcon();
   const acc = calcAcc() || 0;
@@ -420,12 +499,24 @@ function finish() {
   $('msg').textContent = 'Finished. Accuracy ' + acc.toFixed(1) + '% (Perfect ' + stats.perfect + ', Good ' + stats.good + ', Miss ' + stats.miss + ', Wrong ' + stats.wrong + ', Max combo ' + stats.maxCombo + ').' + extra;
 }
 
+function metTick() {
+  const bs = song.beats;
+  while (beatIdx < bs.length && bs[beatIdx].t <= pos) {
+    if (metOn && pos - bs[beatIdx].t < 0.15) {
+      click(bs[beatIdx].strong);
+      beatFlash = performance.now(); beatStrong = bs[beatIdx].strong;
+    }
+    beatIdx++;
+  }
+}
+
 function step(dt, now) {
   const ns = song.notes, free = mode === 'free';
   let target = pos + dt * rate();
   while (scan < ns.length && (ns[scan].state !== 0 || !isActive(ns[scan]))) scan++;
   if (!free && scan < ns.length && ns[scan].t < target) target = Math.max(pos, ns[scan].t);
   pos = target;
+  metTick();
   if (free) {
     const winG = 0.25 * rate();
     for (let i = scan; i < ns.length && ns[i].t < pos - winG; i++) {
@@ -462,12 +553,21 @@ function draw() {
   ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);
   const ww = W / whites.length, kbH = Math.min(100, H * 0.22), hitY = H - kbH, pxs = hitY / VIS;
   const bw = ww * 0.6, bh = kbH * 0.62;
+  const fs = Math.max(8, Math.min(13, ww * 0.55));
   const isBlack = n => [1,3,6,8,10].includes(n % 12);
   ctx.lineWidth = 1;
   whites.forEach((p, i) => {
     ctx.strokeStyle = p % 12 === 0 ? '#2e2e2e' : '#171717';
     ctx.beginPath(); ctx.moveTo(i * ww, 0); ctx.lineTo(i * ww, hitY); ctx.stroke();
   });
+  for (const b of song.beats) {
+    const y = hitY - (b.t - pos) * pxs;
+    if (y > hitY) continue;
+    if (y < 0) break;
+    ctx.strokeStyle = b.strong ? '#303030' : '#191919';
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   for (const n of song.notes) {
     const bottom = hitY - (n.t - pos) * pxs;
     if (bottom < 0) break;
@@ -486,6 +586,18 @@ function draw() {
     else if (n.state === 2) ctx.globalAlpha = 0.4;
     else if (n.state === 3) { fill = '#ff5252'; ctx.globalAlpha = 0.3; }
     rrect(x, top, w, h, 3, fill);
+    if (active && ww >= 13 && (showNames || showFing)) {
+      const lines = [];
+      if (showFing && n.f) lines.push(String(n.f));
+      if (showNames) lines.push(NAMES[n.p % 12]);
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold ' + fs + 'px system-ui, sans-serif';
+      const base = top + h - 3;
+      for (let i = 0; i < lines.length; i++) {
+        if ((i + 1) * fs + 2 > h) break;
+        ctx.fillText(lines[i], x + w / 2, base - i * fs);
+      }
+    }
   }
   ctx.globalAlpha = 1;
   ctx.strokeStyle = 'rgba(255,255,255,0.5)';
@@ -495,6 +607,11 @@ function draw() {
     ctx.fillStyle = lit(p) ? keyColor(p) : '#f5f5f5';
     ctx.fillRect(i * ww, hitY, ww, kbH);
     ctx.strokeStyle = '#000'; ctx.strokeRect(i * ww, hitY, ww, kbH);
+    if (showNames && ww >= 13) {
+      ctx.fillStyle = lit(p) ? '#000' : '#777';
+      ctx.font = Math.max(8, fs - 2) + 'px system-ui, sans-serif';
+      ctx.fillText(p % 12 === 0 ? noteName(p) : NAMES[p % 12], i * ww + ww / 2, hitY + kbH - 4);
+    }
   });
   for (let p = song.lo; p <= song.hi; p++) {
     if (!isBlack(p) || whiteIdx[p - 1] === undefined) continue;
@@ -502,6 +619,15 @@ function draw() {
     ctx.fillStyle = lit(p) ? keyColor(p) : '#222';
     ctx.fillRect(x, hitY, bw, bh);
     if (lit(p)) { ctx.strokeStyle = '#000'; ctx.strokeRect(x, hitY, bw, bh); }
+  }
+  if (metOn) {
+    const a = Math.max(0, 1 - (performance.now() - beatFlash) / 160);
+    if (a > 0) {
+      ctx.globalAlpha = a;
+      ctx.fillStyle = beatStrong ? '#ff9f43' : '#ffffff';
+      ctx.beginPath(); ctx.arc(16, 16, 8, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
   }
 }
 
@@ -511,10 +637,14 @@ function bestText() {
 }
 function hud() {
   const acc = calcAcc();
-  $('hud').textContent = 'Score ' + stats.points + '  |  Accuracy ' + (acc === null ? '-' : Math.round(acc) + '%') + '  |  Combo ' + stats.combo + '  |  Best ' + bestText();
+  $('hud').textContent = 'Score ' + (stats.points + (holdOn ? stats.holdPts : 0)) + '  |  Accuracy ' + (acc === null ? '-' : Math.round(acc) + '%') + '  |  Combo ' + stats.combo + '  |  Best ' + bestText();
+  const now = performance.now();
   const j = $('judge');
-  if (performance.now() - judgeAt < 700 && judgeText) { j.textContent = judgeText; j.style.color = judgeColor; }
+  if (now - judgeAt < 700 && judgeText) { j.textContent = judgeText; j.style.color = judgeColor; }
   else j.textContent = '';
+  const j2 = $('judge2');
+  if (now - judge2At < 700 && judge2Text) { j2.textContent = judge2Text; j2.style.color = judge2Color; }
+  else j2.textContent = '';
 }
 
 let lastFrame = performance.now();
@@ -532,7 +662,10 @@ function keyDown(n) {
   held.add(n); lastInput = performance.now(); renderChords();
   if (playing) judge(n);
 }
-function keyUp(n) { held.delete(n); renderChords(); }
+function keyUp(n) {
+  held.delete(n); renderChords();
+  if (holding.has(n)) { if (playing) evalHold(n, pos); else holding.delete(n); }
+}
 function handleMsg(status, d1, d2) {
   const type = status & 0xF0;
   if (type === 0x90 && d2 > 0) keyDown(d1);
@@ -616,6 +749,21 @@ $('hideChk').onchange = e => {
   hideOther = e.target.checked;
   localStorage.setItem('hideOther', hideOther ? '1' : '0');
 };
+$('holdChk').checked = holdOn;
+$('holdChk').onchange = e => {
+  holdOn = e.target.checked;
+  localStorage.setItem('hold', holdOn ? '1' : '0'); rewind();
+};
+$('namesChk').checked = showNames;
+$('namesChk').onchange = e => { showNames = e.target.checked; localStorage.setItem('names', showNames ? '1' : '0'); };
+$('fingChk').checked = showFing;
+$('fingChk').onchange = e => { showFing = e.target.checked; localStorage.setItem('fing', showFing ? '1' : '0'); };
+$('metChk').checked = metOn;
+$('metChk').onchange = e => {
+  metOn = e.target.checked;
+  localStorage.setItem('met', metOn ? '1' : '0');
+  if (metOn) ensureAudio();
+};
 
 const NOTCHES = [50, 60, 70, 80, 90, 100];
 NOTCHES.forEach(v => {
@@ -629,6 +777,7 @@ $('speed').oninput = e => {
   for (const k of NOTCHES) if (Math.abs(v - k) <= 2) v = k;
   e.target.value = v; speed = v;
   localStorage.setItem('speed', v); $('speedVal').textContent = v;
+  updateTitle();
 };
 
 loadSong('Ode to Joy', odeToJoy());
