@@ -1,55 +1,84 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang='en'>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<meta charset='utf-8'>
+<meta name='viewport' content='width=device-width,initial-scale=1,user-scalable=no'>
 <title>FP-10 Key Viewer</title>
 <style>
-  body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center}
-  button{font-size:1.1rem;padding:.8rem 1.4rem;margin:1rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff}
-  select{font-size:1rem;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.3rem}
-  #status{color:#888;font-size:.9rem;min-height:1.2em}
-  #hands{display:flex;gap:8px;margin:.8rem 8px}
-  .hand{flex:1;background:#1b1b1b;border-radius:10px;padding:.6rem .4rem;min-height:9rem}
-  .hand h3{margin:0 0 .4rem;font-size:.85rem;color:#888;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center;-webkit-user-select:none;user-select:none}
+  button,.btn{font-size:1rem;padding:.5rem .9rem;margin:.2rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff;cursor:pointer;display:inline-block}
+  button.sec,.btn.sec{background:#333}
+  button.big{font-size:1.5rem;padding:.4rem 1.6rem}
+  select{font-size:.9rem;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.25rem}
+  #top{padding:.3rem}
+  #status{color:#888;font-size:.85rem}
+  #songbar{font-size:.95rem;color:#bcd}
+  #opts{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin:.3rem 8px;font-size:.9rem}
+  #speedBox{flex:1;min-width:200px;max-width:340px}
+  .rangeWrap{position:relative;padding:0 10px 18px}
+  .rangeWrap input{width:100%;margin:0}
+  #ticks{position:absolute;left:10px;right:10px;bottom:0;height:16px;font-size:.7rem;color:#888}
+  #ticks span{position:absolute;transform:translateX(-50%)}
+  #stage{margin:0 4px}
+  #cv{width:100%;height:50vh;min-height:280px;max-height:480px;display:block;border-radius:8px;background:#0b0b0b;touch-action:manipulation}
+  #hud{font-size:.95rem;color:#cde;margin-top:.3rem}
+  #judge{height:1.4rem;font-weight:700}
+  #msg{min-height:1.2rem;color:#9ab;font-size:.9rem;padding:0 8px}
+  #hands{display:flex;gap:6px;margin:.4rem 6px}
+  .hand{flex:1;background:#1b1b1b;border-radius:8px;padding:.3rem}
+  .hand h3{margin:0;font-size:.7rem;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
   .lh h3{color:#5aa9ff}.rh h3{color:#4cd964}
-  .notes{font-size:1.3rem;font-weight:600;min-height:1.8rem;word-spacing:.4rem}
-  .chord{font-size:2.2rem;font-weight:700;margin-top:.4rem;min-height:2.8rem}
-  .alt{color:#9ab;font-size:.9rem;min-height:1.2rem}
-  #both{background:#1b1b1b;border-radius:10px;margin:0 8px .6rem;padding:.5rem;display:none}
-  #both .chord{font-size:1.6rem;min-height:0;margin:0}
-  #both h3{margin:0;font-size:.8rem;color:#888;text-transform:uppercase}
-  #split{margin:.4rem;color:#888;font-size:.9rem}
-  #pedal{min-height:1.2rem;color:#9ab;font-size:.9rem}
-  #kb{position:relative;height:130px;margin:1rem 4px;overflow:hidden}
-  .w,.b{position:absolute;top:0;border:1px solid #000;box-sizing:border-box}
-  .w{background:#f5f5f5;height:100%}
-  .b{background:#222;height:60%;z-index:2}
-  .w.l{background:#5aa9ff}.b.l{background:#1f5fa8}
-  .w.r{background:#4cd964}.b.r{background:#1b9a36}
+  .notes{font-size:.95rem;font-weight:600;min-height:1.2rem;word-spacing:.3rem}
+  .chord{font-size:1.3rem;font-weight:700;min-height:1.6rem}
+  .alt{color:#9ab;font-size:.75rem;min-height:.9rem}
+  #both{background:#1b1b1b;border-radius:8px;margin:0 6px .4rem;padding:.3rem;display:none}
+  #both h3{margin:0;font-size:.7rem;color:#888;text-transform:uppercase}
+  #both .chord{font-size:1.1rem;min-height:0}
+  #split{margin:.3rem;color:#888;font-size:.85rem}
+  #pedal{min-height:1rem;color:#9ab;font-size:.8rem}
 </style>
 </head>
 <body>
-<button id="connect">Connect to FP-10</button>
-<div id="status">Not connected</div>
+<div id='top'><button id='connect'>Connect to FP-10</button><span id='status'>Not connected</span></div>
 
-<div id="hands">
-  <div class="hand lh"><h3>Left hand</h3><div class="notes" id="lhN">–</div><div class="chord" id="lhC"></div><div class="alt" id="lhA"></div></div>
-  <div class="hand rh"><h3>Right hand</h3><div class="notes" id="rhN">–</div><div class="chord" id="rhC"></div><div class="alt" id="rhA"></div></div>
+<div id='songbar'>
+  <span id='songName'></span>
+  <label class='btn sec'>Load MIDI<input id='file' type='file' accept='.mid,.midi,audio/midi,audio/x-midi' hidden></label>
+  <button class='sec' id='odeBtn'>Ode to Joy</button>
 </div>
-<div id="both"><h3>Both hands together</h3><div class="chord" id="bothC"></div><div class="alt" id="bothA"></div></div>
 
-<div id="split">Hand split: <select id="splitSel"></select></div>
-<div id="pedal"></div>
-<div id="kb"></div>
+<div id='opts'>
+  <label><input type='checkbox' id='waitChk'> Wait for me</label>
+  <div id='speedBox'>
+    <div>Speed <b id='speedVal'>100</b>%</div>
+    <div class='rangeWrap'><input type='range' id='speed' min='50' max='100' step='1' value='100'><div id='ticks'></div></div>
+  </div>
+</div>
+
+<div id='stage'><canvas id='cv'></canvas></div>
+<div id='judge'></div>
+<div id='hud'></div>
+<div>
+  <button class='sec big' id='rew'>&#9198;</button>
+  <button class='big' id='play'>&#9654;</button>
+</div>
+<div id='msg'></div>
+
+<div id='hands'>
+  <div class='hand lh'><h3>Left hand</h3><div class='notes' id='lhN'>-</div><div class='chord' id='lhC'></div><div class='alt' id='lhA'></div></div>
+  <div class='hand rh'><h3>Right hand</h3><div class='notes' id='rhN'>-</div><div class='chord' id='rhC'></div><div class='alt' id='rhA'></div></div>
+</div>
+<div id='both'><h3>Both hands together</h3><div class='chord' id='bothC'></div><div class='alt' id='bothA'></div></div>
+<div id='split'>Hand split: <select id='splitSel'></select></div>
+<div id='pedal'></div>
 
 <script>
 const MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
 const MIDI_CHAR    = '7772e5db-3868-4112-a1a9-f2669d106bf3';
 const NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
 const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
-const held = new Set();
 const $ = id => document.getElementById(id);
+const held = new Set();
 
 // ---------- Chord detection ----------
 const TEMPLATES = [
@@ -73,7 +102,7 @@ function analyze(notes) {
   if (pcs.length === 1) return { main: NAMES[bass] + ' octave', alt: '' };
   if (pcs.length === 2) {
     const diff = notes[notes.length - 1] - notes[0];
-    let name = diff === 12 ? 'octave' : INTERVALS[diff % 12] + (diff > 12 ? ' (+ octave)' : '');
+    const name = diff === 12 ? 'octave' : INTERVALS[diff % 12] + (diff > 12 ? ' (+ octave)' : '');
     const alt = (diff % 12 === 7) ? NAMES[bass] + '5 (power chord)' : '';
     return { main: name, alt };
   }
@@ -90,24 +119,7 @@ function analyze(notes) {
   return { main: found[0].text, alt: found.slice(1, 3).map(f => f.text).join(' · ') };
 }
 
-// ---------- Keyboard ----------
-const isBlack = n => [1,3,6,8,10].includes(n % 12);
-const whites = []; for (let n = 21; n <= 108; n++) if (!isBlack(n)) whites.push(n);
-const ww = 100 / whites.length;
-const keyEls = {};
-whites.forEach((n, i) => {
-  const d = document.createElement('div');
-  d.className = 'w'; d.style.left = i * ww + '%'; d.style.width = ww + '%';
-  $('kb').appendChild(d); keyEls[n] = d;
-});
-for (let n = 22; n < 108; n++) if (isBlack(n)) {
-  const i = whites.indexOf(n - 1);
-  const d = document.createElement('div');
-  d.className = 'b'; d.style.left = (i + 1) * ww - ww * 0.3 + '%'; d.style.width = ww * 0.6 + '%';
-  $('kb').appendChild(d); keyEls[n] = d;
-}
-
-// ---------- Split setting ----------
+// ---------- Hand split ----------
 let split = parseInt(localStorage.getItem('split') || '60', 10);
 for (let n = 40; n <= 80; n++) {
   const o = document.createElement('option');
@@ -115,38 +127,313 @@ for (let n = 40; n <= 80; n++) {
   if (n === split) o.selected = true;
   $('splitSel').appendChild(o);
 }
-$('splitSel').onchange = e => { split = parseInt(e.target.value, 10); localStorage.setItem('split', split); render(); };
+$('splitSel').onchange = e => { split = parseInt(e.target.value, 10); localStorage.setItem('split', split); renderChords(); };
+const handColor = p => p < split ? '#5aa9ff' : '#4cd964';
 
-// ---------- Render ----------
-function show(prefix, notes) {
+function showHand(prefix, notes) {
   const r = analyze(notes);
-  $(prefix + 'N').textContent = notes.length ? notes.map(noteName).join(' ') : '–';
+  $(prefix + 'N').textContent = notes.length ? notes.map(noteName).join(' ') : '-';
   $(prefix + 'C').textContent = r.main;
   $(prefix + 'A').textContent = r.alt ? 'also: ' + r.alt : '';
 }
-function render() {
+function renderChords() {
   const all = [...held].sort((a, b) => a - b);
   const lh = all.filter(n => n < split), rh = all.filter(n => n >= split);
-  show('lh', lh); show('rh', rh);
+  showHand('lh', lh); showHand('rh', rh);
   if (lh.length && rh.length) {
     const r = analyze(all);
     $('both').style.display = 'block';
     $('bothC').textContent = r.main;
     $('bothA').textContent = r.alt ? 'also: ' + r.alt : '';
   } else $('both').style.display = 'none';
-  for (const [n, el] of Object.entries(keyEls)) {
-    const on = held.has(+n);
-    el.classList.toggle('l', on && +n < split);
-    el.classList.toggle('r', on && +n >= split);
+}
+
+// ---------- Song data ----------
+const LEAD = 2;
+const VIS = 3;
+const IDLE_MS = 5000;
+let song = { name: '', notes: [], lo: 36, hi: 71, end: 0 };
+let whites = [], whiteIdx = {};
+
+function noteNum(s) {
+  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[s[0]];
+  let i = 1, acc = 0;
+  if (s[i] === '#') { acc = 1; i++; } else if (s[i] === 'b') { acc = -1; i++; }
+  return (parseInt(s.slice(i), 10) + 1) * 12 + base + acc;
+}
+function buildSeq(str, bpm) {
+  const spb = 60 / bpm, out = [];
+  let t = 0;
+  for (const tok of str.trim().split(' ')) {
+    const [names, b] = tok.split(':');
+    const beats = parseFloat(b);
+    if (names !== 'R') for (const nm of names.split('+')) out.push({ t: t * spb, d: beats * spb * 0.95, p: noteNum(nm), state: 0 });
+    t += beats;
+  }
+  return out;
+}
+function odeToJoy() {
+  const A = 'E4:1 E4:1 F4:1 G4:1 G4:1 F4:1 E4:1 D4:1 C4:1 C4:1 D4:1 E4:1';
+  const E1 = 'E4:1.5 D4:.5 D4:2';
+  const E2 = 'D4:1.5 C4:.5 C4:2';
+  const B = 'D4:1 D4:1 E4:1 C4:1 D4:1 E4:.5 F4:.5 E4:1 C4:1 D4:1 E4:.5 F4:.5 E4:1 D4:1 C4:1 D4:1 G3:2';
+  const mel = [A, E1, A, E2, B, A, E2].join(' ');
+  const C = 'C3+G3:4', G = 'G2+D3:4', Ch = 'C3+G3:2', Gh = 'G2+D3:2';
+  const lh = [C, G, C, G, C, G, C, Gh, Ch, Gh, Ch, Gh, Ch, G, Ch, Gh, C, G, C, Gh, Ch].join(' ');
+  return buildSeq(mel, 100).concat(buildSeq(lh, 100));
+}
+
+// ---------- MIDI file parser ----------
+function parseMidi(buf) {
+  const v = new DataView(buf);
+  let o = 0;
+  const str = n => { let s = ''; for (let i = 0; i < n; i++) s += String.fromCharCode(v.getUint8(o + i)); o += n; return s; };
+  const vlq = () => { let x = 0, b; do { b = v.getUint8(o++); x = (x << 7) | (b & 0x7f); } while (b & 0x80); return x; };
+  if (str(4) !== 'MThd') throw new Error('Not a MIDI file');
+  const hl = v.getUint32(o); o += 4;
+  const ntr = v.getUint16(o + 2), div = v.getUint16(o + 4);
+  o += hl;
+  if (div & 0x8000) throw new Error('SMPTE timing not supported');
+  const tempos = [], raw = [];
+  for (let t = 0; t < ntr && o + 8 <= v.byteLength; t++) {
+    const id = str(4), len = v.getUint32(o); o += 4;
+    const end = o + len;
+    if (id !== 'MTrk') { o = end; continue; }
+    let tick = 0, run = 0;
+    const on = new Map();
+    while (o < end) {
+      tick += vlq();
+      let s = v.getUint8(o);
+      if (s & 0x80) { o++; if (s < 0xF0) run = s; } else s = run;
+      if (s === 0xFF) {
+        const type = v.getUint8(o++), l = vlq();
+        if (type === 0x51 && l === 3) tempos.push({ tick, us: (v.getUint8(o) << 16) | (v.getUint8(o + 1) << 8) | v.getUint8(o + 2) });
+        o += l;
+      } else if (s === 0xF0 || s === 0xF7) {
+        o += vlq();
+      } else {
+        const type = s & 0xF0, ch = s & 0x0F;
+        const a = v.getUint8(o++);
+        const b = (type === 0xC0 || type === 0xD0) ? 0 : v.getUint8(o++);
+        const k = ch * 128 + a;
+        if (type === 0x90 && b > 0) {
+          if (ch !== 9) { if (!on.has(k)) on.set(k, []); on.get(k).push(tick); }
+        } else if (type === 0x80 || (type === 0x90 && b === 0)) {
+          const st = on.get(k);
+          if (st && st.length) raw.push({ s: st.shift(), e: tick, p: a });
+        }
+      }
+    }
+    o = end;
+  }
+  tempos.sort((a, b) => a.tick - b.tick);
+  const seg = [{ tick: 0, sec: 0, us: 500000 }];
+  let last = seg[0];
+  for (const tm of tempos) {
+    if (tm.tick === last.tick) { last.us = tm.us; continue; }
+    last = { tick: tm.tick, sec: last.sec + (tm.tick - last.tick) * last.us / 1e6 / div, us: tm.us };
+    seg.push(last);
+  }
+  const toSec = tick => {
+    let s = seg[0];
+    for (const x of seg) { if (x.tick <= tick) s = x; else break; }
+    return s.sec + (tick - s.tick) * s.us / 1e6 / div;
+  };
+  const notes = raw.filter(r => r.p >= 21 && r.p <= 108).map(r => {
+    const t = toSec(r.s);
+    return { t, d: Math.max(0.05, toSec(r.e) - t), p: r.p, state: 0 };
+  });
+  if (!notes.length) throw new Error('No notes found in file');
+  const t0 = Math.min(...notes.map(n => n.t));
+  notes.forEach(n => { n.t -= t0; });
+  return notes;
+}
+
+// ---------- Game state ----------
+let pos = -LEAD, playing = false, finished = false, scan = 0;
+let mode = localStorage.getItem('mode') || 'free';
+let speed = parseInt(localStorage.getItem('speed') || '100', 10);
+let lastInput = 0, judgeText = '', judgeColor = '#fff', judgeAt = 0;
+const stats = { perfect: 0, good: 0, miss: 0, wrong: 0, combo: 0, maxCombo: 0, points: 0 };
+const rate = () => speed / 100;
+
+function loadSong(name, notes) {
+  notes.sort((a, b) => a.t - b.t);
+  let lo = Math.floor(Math.min(...notes.map(n => n.p)) / 12) * 12;
+  let hi = Math.ceil((Math.max(...notes.map(n => n.p)) + 1) / 12) * 12 - 1;
+  if (hi - lo + 1 < 24) hi = lo + 23;
+  lo = Math.max(21, lo); hi = Math.min(108, hi);
+  const isBlack = n => [1,3,6,8,10].includes(n % 12);
+  whites = []; whiteIdx = {};
+  for (let n = lo; n <= hi; n++) if (!isBlack(n)) { whiteIdx[n] = whites.length; whites.push(n); }
+  song = { name, notes, lo, hi, end: Math.max(...notes.map(n => n.t + n.d)) };
+  $('songName').textContent = name + ' (' + notes.length + ' notes)';
+  rewind();
+}
+function resetStats() {
+  stats.perfect = stats.good = stats.miss = stats.wrong = stats.combo = stats.maxCombo = stats.points = 0;
+}
+function setPlayIcon() { $('play').innerHTML = playing ? '&#9208;' : '&#9654;'; }
+function rewind() {
+  playing = false; finished = false; pos = -LEAD; scan = 0;
+  song.notes.forEach(n => { n.state = 0; });
+  resetStats(); unlock(); setPlayIcon();
+  $('msg').textContent = 'Press play, then play along.';
+  judgeText = '';
+}
+function pauseNow(reason) {
+  playing = false; unlock(); setPlayIcon();
+  $('msg').textContent = reason || 'Paused';
+}
+function togglePlay() {
+  if (finished) rewind();
+  if (playing) { pauseNow('Paused'); return; }
+  playing = true; lastInput = performance.now();
+  $('msg').textContent = ''; setPlayIcon(); lock();
+}
+let wl = null;
+async function lock() { try { wl = await navigator.wakeLock.request('screen'); } catch (e) { wl = null; } }
+function unlock() { try { if (wl) wl.release(); } catch (e) {} wl = null; }
+
+function flash(text, color) { judgeText = text; judgeColor = color; judgeAt = performance.now(); }
+function calcAcc() {
+  const judged = stats.perfect + stats.good + stats.miss + stats.wrong;
+  return judged ? stats.points / (100 * judged) * 100 : null;
+}
+function addCombo() { stats.combo++; if (stats.combo > stats.maxCombo) stats.maxCombo = stats.combo; }
+
+function judge(p) {
+  const free = mode === 'free';
+  const winG = free ? 0.25 * rate() : 0.35;
+  const winP = 0.12 * rate();
+  const ns = song.notes;
+  let best = null, bd = 1e9;
+  for (let i = scan; i < ns.length && ns[i].t - pos <= winG; i++) {
+    const n = ns[i];
+    if (n.state !== 0 || n.p !== p) continue;
+    const d = Math.abs(n.t - pos);
+    if (free && d > winG) continue;
+    if (d < bd) { bd = d; best = n; }
+  }
+  if (!best) { stats.wrong++; stats.combo = 0; flash('Wrong note', '#ff6b6b'); return; }
+  if (!free || bd <= winP) { best.state = 1; stats.perfect++; stats.points += 100; flash('Perfect', '#ffd54a'); }
+  else { best.state = 2; stats.good++; stats.points += 60; flash('Good', '#7ee787'); }
+  addCombo();
+}
+
+function bestKey() { return 'best|' + song.name + '|' + mode + '|' + speed; }
+function finish() {
+  for (const n of song.notes) if (n.state === 0) { n.state = 3; stats.miss++; }
+  playing = false; finished = true; unlock(); setPlayIcon();
+  const acc = calcAcc() || 0;
+  const prev = parseFloat(localStorage.getItem(bestKey()) || '0');
+  let extra = '';
+  if (acc > prev) { localStorage.setItem(bestKey(), acc.toFixed(1)); extra = ' New best!'; }
+  $('msg').textContent = 'Finished. Accuracy ' + acc.toFixed(1) + '% (Perfect ' + stats.perfect + ', Good ' + stats.good + ', Miss ' + stats.miss + ', Wrong ' + stats.wrong + ', Max combo ' + stats.maxCombo + ').' + extra;
+}
+
+function step(dt, now) {
+  const ns = song.notes, free = mode === 'free';
+  let target = pos + dt * rate();
+  while (scan < ns.length && ns[scan].state !== 0) scan++;
+  if (!free && scan < ns.length && ns[scan].t < target) target = Math.max(pos, ns[scan].t);
+  pos = target;
+  if (free) {
+    const winG = 0.25 * rate();
+    for (let i = scan; i < ns.length && ns[i].t < pos - winG; i++) {
+      if (ns[i].state === 0) { ns[i].state = 3; stats.miss++; stats.combo = 0; flash('Miss', '#ff6b6b'); }
+    }
+  }
+  if (now - lastInput > IDLE_MS) { pauseNow('Auto-paused: no input for 5 seconds.'); return; }
+  if (pos >= song.end + 0.5) finish();
+}
+
+// ---------- Drawing ----------
+const cv = $('cv'), ctx = cv.getContext('2d');
+const dpr = window.devicePixelRatio || 1;
+function rrect(x, y, w, h, r, fill) {
+  ctx.fillStyle = fill; ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+  ctx.fill();
+}
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (!W || !H) return;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#0b0b0b'; ctx.fillRect(0, 0, W, H);
+  const ww = W / whites.length, kbH = Math.min(100, H * 0.22), hitY = H - kbH, pxs = hitY / VIS;
+  const bw = ww * 0.6, bh = kbH * 0.62;
+  const isBlack = n => [1,3,6,8,10].includes(n % 12);
+  ctx.lineWidth = 1;
+  whites.forEach((p, i) => {
+    ctx.strokeStyle = p % 12 === 0 ? '#2e2e2e' : '#171717';
+    ctx.beginPath(); ctx.moveTo(i * ww, 0); ctx.lineTo(i * ww, hitY); ctx.stroke();
+  });
+  for (const n of song.notes) {
+    const bottom = hitY - (n.t - pos) * pxs;
+    if (bottom < 0) break;
+    const top = bottom - n.d * pxs;
+    if (top > hitY) continue;
+    const blk = isBlack(n.p);
+    const x = blk ? (whiteIdx[n.p - 1] + 1) * ww - bw / 2 : whiteIdx[n.p] * ww + 1;
+    const w = blk ? bw : ww - 2;
+    const h = Math.max(4, bottom - top - 2);
+    ctx.globalAlpha = 1;
+    let fill = handColor(n.p);
+    if (n.state === 1) { fill = '#ffd54a'; ctx.globalAlpha = 0.5; }
+    else if (n.state === 2) ctx.globalAlpha = 0.4;
+    else if (n.state === 3) { fill = '#ff5252'; ctx.globalAlpha = 0.3; }
+    rrect(x, top, w, h, 3, fill);
+  }
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.beginPath(); ctx.moveTo(0, hitY); ctx.lineTo(W, hitY); ctx.stroke();
+  whites.forEach((p, i) => {
+    ctx.fillStyle = held.has(p) ? handColor(p) : '#f5f5f5';
+    ctx.fillRect(i * ww, hitY, ww, kbH);
+    ctx.strokeStyle = '#000'; ctx.strokeRect(i * ww, hitY, ww, kbH);
+  });
+  for (let p = song.lo; p <= song.hi; p++) {
+    if (!isBlack(p) || whiteIdx[p - 1] === undefined) continue;
+    const x = (whiteIdx[p - 1] + 1) * ww - bw / 2;
+    ctx.fillStyle = held.has(p) ? handColor(p) : '#222';
+    ctx.fillRect(x, hitY, bw, bh);
+    if (held.has(p)) { ctx.strokeStyle = '#000'; ctx.strokeRect(x, hitY, bw, bh); }
   }
 }
-const noteOn  = n => { held.add(n); render(); };
-const noteOff = n => { held.delete(n); render(); };
 
+function bestText() {
+  const b = localStorage.getItem(bestKey());
+  return b ? b + '%' : '-';
+}
+function hud() {
+  const acc = calcAcc();
+  $('hud').textContent = 'Score ' + stats.points + '  |  Accuracy ' + (acc === null ? '-' : Math.round(acc) + '%') + '  |  Combo ' + stats.combo + '  |  Best ' + bestText();
+  const j = $('judge');
+  if (performance.now() - judgeAt < 700 && judgeText) { j.textContent = judgeText; j.style.color = judgeColor; }
+  else j.textContent = '';
+}
+
+let lastFrame = performance.now();
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (playing) step(dt, performance.now());
+  draw(); hud();
+  requestAnimationFrame(frame);
+}
+
+// ---------- Input ----------
+function keyDown(n) {
+  held.add(n); lastInput = performance.now(); renderChords();
+  if (playing) judge(n);
+}
+function keyUp(n) { held.delete(n); renderChords(); }
 function handleMsg(status, d1, d2) {
   const type = status & 0xF0;
-  if (type === 0x90 && d2 > 0) noteOn(d1);
-  else if (type === 0x80 || (type === 0x90 && d2 === 0)) noteOff(d1);
+  if (type === 0x90 && d2 > 0) keyDown(d1);
+  else if (type === 0x80 || (type === 0x90 && d2 === 0)) keyUp(d1);
   else if (type === 0xB0 && d1 === 64) $('pedal').textContent = d2 >= 64 ? 'Sustain pedal: down' : '';
 }
 
@@ -171,31 +458,63 @@ function parse(d) {
 
 $('connect').onclick = async () => {
   if (!navigator.bluetooth) {
-    $('status').textContent = 'Web Bluetooth not supported. Use Chrome on Android (or Bluefy on iOS).';
+    $('status').textContent = ' Web Bluetooth not supported. Use Chrome on Android (or Bluefy on iOS).';
     return;
   }
   try {
-    $('status').textContent = 'Searching…';
-    const dev = await navigator.bluetooth.requestDevice({
-      filters: [{ services: [MIDI_SERVICE] }]
-    });
+    $('status').textContent = ' Searching...';
+    const dev = await navigator.bluetooth.requestDevice({ filters: [{ services: [MIDI_SERVICE] }] });
     dev.addEventListener('gattserverdisconnected', () => {
-      $('status').textContent = 'Disconnected'; held.clear(); render();
+      $('status').textContent = ' Disconnected'; held.clear(); renderChords();
     });
     const server = await dev.gatt.connect();
     const svc = await server.getPrimaryService(MIDI_SERVICE);
     const ch = await svc.getCharacteristic(MIDI_CHAR);
-    ch.addEventListener('characteristicvaluechanged', e => {
-      parse(new Uint8Array(e.target.value.buffer));
-    });
+    ch.addEventListener('characteristicvaluechanged', e => { parse(new Uint8Array(e.target.value.buffer)); });
     await ch.startNotifications();
-    $('status').textContent = 'Connected: ' + (dev.name || 'device');
+    $('status').textContent = ' Connected: ' + (dev.name || 'device');
   } catch (err) {
-    $('status').textContent = 'Error: ' + err.message;
+    $('status').textContent = ' Error: ' + err.message;
   }
 };
 
-render();
+// ---------- UI wiring ----------
+$('play').onclick = togglePlay;
+$('rew').onclick = rewind;
+$('odeBtn').onclick = () => loadSong('Ode to Joy', odeToJoy());
+$('file').onchange = async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try {
+    loadSong(f.name.replace(/[.]midi?$/i, ''), parseMidi(await f.arrayBuffer()));
+  } catch (err) {
+    $('msg').textContent = 'Could not load MIDI: ' + err.message;
+  }
+  e.target.value = '';
+};
+$('waitChk').checked = mode === 'wait';
+$('waitChk').onchange = e => {
+  mode = e.target.checked ? 'wait' : 'free';
+  localStorage.setItem('mode', mode); rewind();
+};
+
+const NOTCHES = [50, 60, 70, 80, 90, 100];
+NOTCHES.forEach(v => {
+  const s = document.createElement('span');
+  s.style.left = ((v - 50) / 50 * 100) + '%'; s.textContent = v;
+  $('ticks').appendChild(s);
+});
+$('speed').value = speed; $('speedVal').textContent = speed;
+$('speed').oninput = e => {
+  let v = parseInt(e.target.value, 10);
+  for (const k of NOTCHES) if (Math.abs(v - k) <= 2) v = k;
+  e.target.value = v; speed = v;
+  localStorage.setItem('speed', v); $('speedVal').textContent = v;
+};
+
+loadSong('Ode to Joy', odeToJoy());
+renderChords();
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>
