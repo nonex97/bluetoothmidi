@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>FP-10 Key Viewer</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center}
+  button{font-size:1.1rem;padding:.8rem 1.4rem;margin:1rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff}
+  #status{color:#888;font-size:.9rem;min-height:1.2em}
+  #big{font-size:3rem;font-weight:700;min-height:4rem;padding:0 1rem;word-spacing:.5rem}
+  #sub{color:#9ab;min-height:1.5rem}
+  #kb{position:relative;height:130px;margin:1rem 4px;overflow:hidden}
+  .w,.b{position:absolute;top:0;border:1px solid #000;box-sizing:border-box}
+  .w{background:#f5f5f5;height:100%}
+  .b{background:#222;height:60%;z-index:2}
+  .on.w{background:#4cd964}
+  .on.b{background:#1b9a36}
+  #pedal{margin:.5rem}
+</style>
+</head>
+<body>
+<button id="connect">Connect to FP-10</button>
+<div id="status">Not connected</div>
+<div id="big">–</div>
+<div id="sub"></div>
+<div id="pedal"></div>
+<div id="kb"></div>
+
+<script>
+const MIDI_SERVICE = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
+const MIDI_CHAR    = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+const NAMES = ['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
+const held = new Set();
+const $ = id => document.getElementById(id);
+
+// Build 88-key keyboard (A0=21 .. C8=108)
+const isBlack = n => [1,3,6,8,10].includes(n % 12);
+const whites = []; for (let n = 21; n <= 108; n++) if (!isBlack(n)) whites.push(n);
+const ww = 100 / whites.length;
+const keyEls = {};
+whites.forEach((n, i) => {
+  const d = document.createElement('div');
+  d.className = 'w'; d.style.left = i * ww + '%'; d.style.width = ww + '%';
+  $('kb').appendChild(d); keyEls[n] = d;
+});
+for (let n = 22; n < 108; n++) if (isBlack(n)) {
+  const i = whites.indexOf(n - 1);
+  const d = document.createElement('div');
+  d.className = 'b'; d.style.left = (i + 1) * ww - ww * 0.3 + '%'; d.style.width = ww * 0.6 + '%';
+  $('kb').appendChild(d); keyEls[n] = d;
+}
+
+function render() {
+  const notes = [...held].sort((a, b) => a - b);
+  $('big').textContent = notes.length ? notes.map(noteName).join('  ') : '–';
+  $('sub').textContent = notes.length ? 'MIDI: ' + notes.join(', ') : '';
+}
+function noteOn(n, v)  { held.add(n);    keyEls[n]?.classList.add('on');    render(); }
+function noteOff(n)    { held.delete(n); keyEls[n]?.classList.remove('on'); render(); }
+
+function handleMsg(status, d1, d2) {
+  const type = status & 0xF0;
+  if (type === 0x90 && d2 > 0) noteOn(d1, d2);
+  else if (type === 0x80 || (type === 0x90 && d2 === 0)) noteOff(d1);
+  else if (type === 0xB0 && d1 === 64) $('pedal').textContent = d2 >= 64 ? 'Sustain pedal: down' : '';
+}
+
+// BLE MIDI packet parser (header, timestamps, running status)
+function parse(d) {
+  let i = 1, status = 0;
+  while (i < d.length) {
+    let b = d[i];
+    if (b & 0x80) {                // timestamp byte
+      i++; if (i >= d.length) break;
+      b = d[i];
+      if (b & 0x80) { status = b; i++; }
+    }
+    if (status === 0) { i++; continue; }
+    if (status >= 0xF0) { while (i < d.length && !(d[i] & 0x80)) i++; status = 0; continue; }
+    const len = ((status & 0xF0) === 0xC0 || (status & 0xF0) === 0xD0) ? 1 : 2;
+    if (i + len > d.length) break;
+    handleMsg(status, d[i], len === 2 ? d[i + 1] : 0);
+    i += len;
+  }
+}
+
+$('connect').onclick = async () => {
+  if (!navigator.bluetooth) {
+    $('status').textContent = 'Web Bluetooth not supported. Use Chrome on Android (or Bluefy on iOS).';
+    return;
+  }
+  try {
+    $('status').textContent = 'Searching…';
+    const dev = await navigator.bluetooth.requestDevice({
+      filters: [{ services: [MIDI_SERVICE] }]
+    });
+    dev.addEventListener('gattserverdisconnected', () => {
+      $('status').textContent = 'Disconnected'; held.clear();
+      Object.values(keyEls).forEach(e => e.classList.remove('on')); render();
+    });
+    const server = await dev.gatt.connect();
+    const svc = await server.getPrimaryService(MIDI_SERVICE);
+    const ch = await svc.getCharacteristic(MIDI_CHAR);
+    ch.addEventListener('characteristicvaluechanged', e => {
+      parse(new Uint8Array(e.target.value.buffer));
+    });
+    await ch.startNotifications();
+    $('status').textContent = 'Connected: ' + (dev.name || 'device');
+  } catch (err) {
+    $('status').textContent = 'Error: ' + err.message;
+  }
+};
+</script>
+</body>
+</html>
