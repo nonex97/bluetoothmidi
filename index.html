@@ -8,8 +8,11 @@
   body{margin:0;font-family:system-ui,sans-serif;background:#111;color:#eee;text-align:center;-webkit-user-select:none;user-select:none}
   button,.btn{font-size:1rem;padding:.5rem .9rem;margin:.2rem;border:0;border-radius:8px;background:#2d7ff9;color:#fff;cursor:pointer;display:inline-block}
   button.sec,.btn.sec{background:#333}
+  button:disabled{opacity:.4;cursor:default}
   button.big{font-size:1.5rem;padding:.4rem 1.4rem}
   button.listen{font-size:1.1rem;padding:.6rem 1rem;background:#7a4bd6}
+  button.rec{background:#c0334a}
+  button.rec.on{background:#ff2d55;box-shadow:0 0 8px #ff2d55}
   select{font-size:.9rem;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:.25rem}
   #top{padding:.3rem}
   #status{color:#888;font-size:.85rem}
@@ -26,6 +29,8 @@
   #judge{height:1.4rem;font-weight:700}
   #judge2{height:1.1rem;font-size:.85rem;font-weight:600}
   #msg{min-height:1.2rem;color:#9ab;font-size:.9rem;padding:0 8px}
+  #recRow{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:4px 10px;margin:.2rem 8px;font-size:.85rem}
+  #recInfo{min-height:1.1rem;color:#e8a;font-size:.85rem;padding:0 8px}
   #outRow{font-size:.85rem;color:#888;margin:.2rem}
   #hands{display:flex;gap:6px;margin:.4rem 6px}
   .hand{flex:1;background:#1b1b1b;border-radius:8px;padding:.3rem}
@@ -75,6 +80,14 @@
   <button class='big' id='play'>&#9654;</button>
   <button class='listen' id='listen'>Listen</button>
 </div>
+<div id='recRow'>
+  <button class='rec' id='rec'>&#9679; Record</button>
+  <button class='sec' id='recSave' disabled>Save MIDI</button>
+  <button class='sec' id='recShare' disabled>Share</button>
+  <button class='sec' id='recCopy' disabled>Copy notes</button>
+  <label><input type='checkbox' id='autoRec'> Auto-record with Play</label>
+</div>
+<div id='recInfo'></div>
 <div id='outRow'>Listen on: <select id='outSel'><option value='auto'>Piano (if connected)</option><option value='phone'>Phone speaker</option></select></div>
 <div id='msg'></div>
 
@@ -360,6 +373,142 @@ function click(strong) {
   o.start(t); o.stop(t + 0.06);
 }
 
+// ---------- Recording ----------
+const rec = { on: false, auto: false, t0: null, events: [], count: 0, meta: '' };
+let lastRec = null, recNote = '', recNoteAt = 0;
+function recMsg(t) { recNote = t; recNoteAt = performance.now(); }
+function summarize(r) {
+  r.n = r.events.filter(e => e.type === 'on').length;
+  r.dur = r.events.length ? r.events[r.events.length - 1].t : 0;
+}
+try {
+  const s = localStorage.getItem('lastRec');
+  if (s) { lastRec = JSON.parse(s); summarize(lastRec); }
+} catch (e) { lastRec = null; }
+
+function recUi() {
+  $('rec').innerHTML = rec.on ? '&#9632; Stop recording' : '&#9679; Record';
+  $('rec').classList.toggle('on', rec.on);
+  const dis = rec.on || !lastRec;
+  $('recSave').disabled = dis; $('recShare').disabled = dis; $('recCopy').disabled = dis;
+}
+function recEvent(type, p, v) {
+  if (!rec.on || listening) return;
+  const now = performance.now();
+  if (rec.t0 === null) { if (type !== 'on') return; rec.t0 = now; }
+  rec.events.push({ t: (now - rec.t0) / 1000, type, p, v });
+  if (type === 'on') rec.count++;
+}
+function recStart(auto) {
+  if (rec.on) return;
+  rec.on = true; rec.auto = !!auto; rec.t0 = null; rec.events = []; rec.count = 0;
+  rec.meta = song.name + ' | speed ' + speed + '% | ' + (mode === 'wait' ? 'wait mode' : 'free mode') + ' | practice: ' + practice;
+  recUi();
+}
+function recStop() {
+  if (!rec.on) return;
+  rec.on = false;
+  const endT = rec.t0 === null ? 0 : (performance.now() - rec.t0) / 1000;
+  const open = new Set();
+  for (const e of rec.events) { if (e.type === 'on') open.add(e.p); else if (e.type === 'off') open.delete(e.p); }
+  for (const p of open) rec.events.push({ t: endT, type: 'off', p, v: 0 });
+  if (rec.count > 0) {
+    lastRec = { events: rec.events, meta: rec.meta, name: song.name };
+    summarize(lastRec);
+    try { localStorage.setItem('lastRec', JSON.stringify(lastRec)); } catch (e) {}
+    recMsg('Take saved in the app: ' + lastRec.n + ' notes.');
+  } else {
+    recMsg('Nothing recorded (no notes played).');
+  }
+  rec.events = [];
+  recUi();
+}
+
+function buildMidi(r) {
+  const TPS = 960;
+  const trk = [];
+  const addVlq = n => {
+    const t = [n & 0x7f];
+    n = Math.floor(n / 128);
+    while (n > 0) { t.unshift((n & 0x7f) | 0x80); n = Math.floor(n / 128); }
+    for (const x of t) trk.push(x);
+  };
+  const addText = (type, s) => {
+    const enc = Array.from(new TextEncoder().encode(s));
+    trk.push(0, 0xFF, type); addVlq(enc.length);
+    for (const x of enc) trk.push(x);
+  };
+  trk.push(0, 0xFF, 0x51, 0x03, 0x07, 0xA1, 0x20);
+  trk.push(0, 0xFF, 0x58, 0x04, 0x04, 0x02, 0x18, 0x08);
+  addText(0x03, 'FP-10 recording: ' + r.name);
+  addText(0x01, r.meta);
+  const order = { off: 0, cc: 1, on: 2 };
+  const ev = r.events
+    .map(e => ({ tick: Math.round(e.t * TPS), type: e.type, p: e.p, v: e.v }))
+    .sort((a, b) => (a.tick - b.tick) || (order[a.type] - order[b.type]));
+  let prev = 0;
+  for (const e of ev) {
+    addVlq(e.tick - prev); prev = e.tick;
+    if (e.type === 'on') trk.push(0x90, e.p & 0x7f, Math.max(1, e.v & 0x7f));
+    else if (e.type === 'off') trk.push(0x80, e.p & 0x7f, 0);
+    else trk.push(0xB0, 64, e.v & 0x7f);
+  }
+  trk.push(0, 0xFF, 0x2F, 0x00);
+  const head = [0x4D, 0x54, 0x68, 0x64, 0, 0, 0, 6, 0, 0, 0, 1, 0x01, 0xE0];
+  const len = trk.length;
+  const mtrk = [0x4D, 0x54, 0x72, 0x6B, (len >>> 24) & 255, (len >>> 16) & 255, (len >>> 8) & 255, len & 255];
+  return new Uint8Array(head.concat(mtrk, trk));
+}
+function notesText(r) {
+  const lines = ['# ' + r.meta, '# columns: start_s, midi_note, name, duration_s, velocity'];
+  const open = new Map(), out = [];
+  for (const e of r.events) {
+    if (e.type === 'on') open.set(e.p, e);
+    else if (e.type === 'off') {
+      const o = open.get(e.p);
+      if (o) { out.push([o.t, e.p, noteName(e.p), e.t - o.t, o.v]); open.delete(e.p); }
+    }
+  }
+  out.sort((a, b) => a[0] - b[0]);
+  for (const o of out) lines.push(o[0].toFixed(3) + ',' + o[1] + ',' + o[2] + ',' + o[3].toFixed(3) + ',' + o[4]);
+  const ped = r.events.filter(e => e.type === 'cc');
+  if (ped.length) lines.push('# pedal (time_s:value) ' + ped.map(e => e.t.toFixed(2) + ':' + e.v).join(' '));
+  return lines.join(String.fromCharCode(10));
+}
+function recFileName() {
+  const d = new Date(), pad = n => String(n).padStart(2, '0');
+  const safe = (lastRec.name || 'song').replace(/[^A-Za-z0-9_-]+/g, '_');
+  return 'fp10_' + safe + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.mid';
+}
+$('rec').onclick = () => { if (rec.on) recStop(); else recStart(false); };
+$('recSave').onclick = () => {
+  if (!lastRec) return;
+  const blob = new Blob([buildMidi(lastRec)], { type: 'audio/midi' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = recFileName();
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  recMsg('MIDI file saved to your downloads.');
+};
+$('recShare').onclick = async () => {
+  if (!lastRec) return;
+  try {
+    const file = new File([buildMidi(lastRec)], recFileName(), { type: 'audio/midi' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'FP-10 recording' });
+    } else recMsg('Sharing files is not supported here. Use Save MIDI instead.');
+  } catch (err) { recMsg('Share cancelled or failed: ' + err.message); }
+};
+$('recCopy').onclick = async () => {
+  if (!lastRec) return;
+  try { await navigator.clipboard.writeText(notesText(lastRec)); recMsg('Notes copied to the clipboard.'); }
+  catch (err) { recMsg('Could not copy: ' + err.message); }
+};
+let autoRec = localStorage.getItem('autorec') === '1';
+$('autoRec').checked = autoRec;
+$('autoRec').onchange = e => { autoRec = e.target.checked; localStorage.setItem('autorec', autoRec ? '1' : '0'); };
+
 // ---------- Game state ----------
 let pos = -LEAD, playing = false, listening = false, finished = false, scan = 0, beatIdx = 0;
 let mode = localStorage.getItem('mode') || 'free';
@@ -404,6 +553,7 @@ function resetStats() {
 }
 function setPlayIcon() { $('play').innerHTML = playing ? '&#9208;' : '&#9654;'; }
 function rewind() {
+  if (rec.on && rec.auto) recStop();
   stopSound();
   playing = false; finished = false; pos = -LEAD; scan = 0; beatIdx = 0;
   holding.clear();
@@ -414,6 +564,7 @@ function rewind() {
 }
 function pauseNow(reason) {
   playing = false; holding.clear(); unlock(); setPlayIcon();
+  if (rec.on && rec.auto) recStop();
   $('msg').textContent = reason || 'Paused';
 }
 function togglePlay() {
@@ -422,6 +573,7 @@ function togglePlay() {
   if (playing) { pauseNow('Paused'); return; }
   if (metOn) ensureAudio();
   playing = true; lastInput = performance.now();
+  if (autoRec && !rec.on) recStart(true);
   $('msg').textContent = ''; setPlayIcon(); lock();
 }
 function toggleListen() {
@@ -492,6 +644,7 @@ function finish() {
   for (const p of [...holding.keys()]) evalHold(p, pos);
   for (const n of song.notes) if (n.state === 0 && isActive(n)) { n.state = 3; stats.miss++; }
   playing = false; finished = true; unlock(); setPlayIcon();
+  if (rec.on && rec.auto) recStop();
   const acc = calcAcc() || 0;
   const prev = parseFloat(localStorage.getItem(bestKey()) || '0');
   let extra = '';
@@ -629,6 +782,10 @@ function draw() {
       ctx.globalAlpha = 1;
     }
   }
+  if (rec.on) {
+    ctx.fillStyle = '#ff2d55';
+    ctx.beginPath(); ctx.arc(W - 16, 16, 6, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function bestText() {
@@ -645,6 +802,11 @@ function hud() {
   const j2 = $('judge2');
   if (now - judge2At < 700 && judge2Text) { j2.textContent = judge2Text; j2.style.color = judge2Color; }
   else j2.textContent = '';
+  const ri = $('recInfo');
+  if (now - recNoteAt < 3500 && recNote) ri.textContent = recNote;
+  else if (rec.on) ri.textContent = 'Recording... ' + rec.count + ' notes' + (rec.t0 === null ? ' (starts at your first note)' : '');
+  else if (lastRec) ri.textContent = 'Last take: ' + lastRec.n + ' notes, ' + lastRec.dur.toFixed(1) + ' s (' + lastRec.name + ')';
+  else ri.textContent = '';
 }
 
 let lastFrame = performance.now();
@@ -658,19 +820,24 @@ function frame(now) {
 }
 
 // ---------- Input ----------
-function keyDown(n) {
+function keyDown(n, vel) {
   held.add(n); lastInput = performance.now(); renderChords();
+  recEvent('on', n, vel || 80);
   if (playing) judge(n);
 }
 function keyUp(n) {
   held.delete(n); renderChords();
+  recEvent('off', n, 0);
   if (holding.has(n)) { if (playing) evalHold(n, pos); else holding.delete(n); }
 }
 function handleMsg(status, d1, d2) {
   const type = status & 0xF0;
-  if (type === 0x90 && d2 > 0) keyDown(d1);
+  if (type === 0x90 && d2 > 0) keyDown(d1, d2);
   else if (type === 0x80 || (type === 0x90 && d2 === 0)) keyUp(d1);
-  else if (type === 0xB0 && d1 === 64) $('pedal').textContent = d2 >= 64 ? 'Sustain pedal: down' : '';
+  else if (type === 0xB0 && d1 === 64) {
+    $('pedal').textContent = d2 >= 64 ? 'Sustain pedal: down' : '';
+    recEvent('cc', 64, d2);
+  }
 }
 
 // BLE MIDI packet parser (header, timestamps, running status)
@@ -703,6 +870,7 @@ $('connect').onclick = async () => {
     dev.addEventListener('gattserverdisconnected', () => {
       $('status').textContent = ' Disconnected'; held.clear(); renderChords();
       bleConnected = false; midiChar = null;
+      if (rec.on) recStop();
       if (listening) rewind();
     });
     const server = await dev.gatt.connect();
@@ -782,6 +950,7 @@ $('speed').oninput = e => {
 
 loadSong('Ode to Joy', odeToJoy());
 renderChords();
+recUi();
 requestAnimationFrame(frame);
 </script>
 </body>
